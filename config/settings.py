@@ -172,6 +172,12 @@ LEARNING_MIN_QUALITY_SCORE = config('LEARNING_MIN_QUALITY_SCORE', default=60, ca
 AI_PROVIDER = config('AI_PROVIDER', default='ollama')
 LOCAL_AI_ONLY = config('LOCAL_AI_ONLY', default=True, cast=bool)
 
+# Cloud LLM fallback (Groq / OpenAI) — free tier for Render
+GROQ_API_KEY = config('GROQ_API_KEY', default='')
+OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
+GROQ_MODEL = config('GROQ_MODEL', default='llama-3.1-8b-instant')
+OPENAI_MODEL = config('OPENAI_MODEL', default='gpt-4o-mini')
+
 OLLAMA_BASE_URL = config('OLLAMA_BASE_URL', default='http://localhost:11434')
 # Text model — primary reasoning model
 OLLAMA_TEXT_MODEL = config('OLLAMA_TEXT_MODEL', default=config('OLLAMA_MODEL', default='llama3'))

@@ -9,7 +9,9 @@ Timeout strategy:
   - Non-streaming requests: timeout=(CONNECT_TIMEOUT, read_timeout)
       → both connect + full response are bounded
 """
+import json
 import logging
+import os
 import time
 import requests
 from django.conf import settings
@@ -39,6 +41,24 @@ class OllamaClient:
         self.text_model = getattr(settings, "OLLAMA_TEXT_MODEL", "") or getattr(settings, "OLLAMA_MODEL", "")
         self.vision_model = getattr(settings, "OLLAMA_VISION_MODEL", "")
         self.embedding_model = settings.OLLAMA_EMBEDDING_MODEL
+        # Cloud LLM (Groq/OpenAI) detection
+        self._groq_key = getattr(settings, "GROQ_API_KEY", "") or os.environ.get("GROQ_API_KEY", "")
+        self._openai_key = getattr(settings, "OPENAI_API_KEY", "") or os.environ.get("OPENAI_API_KEY", "")
+        self._provider = getattr(settings, "AI_PROVIDER", "ollama").lower()
+
+    def _use_groq(self) -> bool:
+        if self._provider in ("groq", "openai"):
+            return bool(self._groq_key or self._openai_key)
+        # auto-detect by URL
+        b = self.base_url.lower()
+        if "groq" in b or "openai" in b:
+            return bool(self._groq_key or self._openai_key)
+        return False
+
+    def _groq_model(self) -> str:
+        if self._provider == "openai" and self._openai_key:
+            return getattr(settings, "OPENAI_MODEL", "gpt-4o-mini")
+        return getattr(settings, "GROQ_MODEL", "llama-3.1-8b-instant")
         # Read timeouts (non-streaming only — streaming uses None)
         self.text_read_timeout = getattr(settings, "OLLAMA_TEXT_TIMEOUT", 90000) / 1000.0
         self.vision_read_timeout = getattr(settings, "OLLAMA_VISION_TIMEOUT", 300000) / 1000.0
@@ -206,6 +226,13 @@ class OllamaClient:
 
     def healthCheck(self) -> dict:
         """Structured health per spec — no sensitive env exposure."""
+        if self._use_groq():
+            m = self._groq_model()
+            return {
+                "ollama": {"connected": True, "baseUrl": "groq" if "groq" in m.lower() or self._provider=="groq" else "openai"},
+                "textModel": {"name": m, "installed": True},
+                "visionModel": {"name": "", "installed": False, "capable": False, "configured": False},
+            }
         base = self.base_url
         result = {
             "ollama": {"connected": False, "baseUrl": base},
@@ -235,6 +262,63 @@ class OllamaClient:
                 result["visionModel"]["capable"] = self.is_vision_capable(self.vision_model)
         return result
 
+    def _groq_chat(self, messages, temperature, stream, model_override=None, num_predict=None):
+        """Groq/OpenAI compatible path — uses requests, supports streaming SSE."""
+        is_groq = "groq" in self.base_url.lower() or self._provider == "groq"
+        if is_groq:
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            key = self._groq_key
+            model = model_override or self._groq_model()
+        else:
+            url = "https://api.openai.com/v1/chat/completions"
+            key = self._openai_key
+            model = model_override or getattr(settings, "OPENAI_MODEL", "gpt-4o-mini")
+        if not key:
+            raise OllamaError("GROQ_API_KEY or OPENAI_API_KEY not set")
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        payload = {"model": model, "messages": messages, "temperature": temperature, "stream": stream}
+        if num_predict:
+            payload["max_tokens"] = num_predict
+        try:
+            if stream:
+                # Groq streaming returns SSE; we wrap to mimic Ollama's resp.iter_lines
+                resp = requests.post(url, json=payload, headers=headers, stream=True, timeout=(10, None))
+                if not resp.ok:
+                    raise OllamaError(f"Groq returned {resp.status_code}: {resp.text[:500]}")
+                # Wrap SSE lines into Ollama-like JSON lines for caller
+                class GroqStreamWrapper:
+                    def __init__(self, r): self.r = r
+                    def iter_lines(self, **kw):
+                        for line in self.r.iter_lines(**kw):
+                            if not line: continue
+                            if line.startswith(b"data: "):
+                                data = line[6:]
+                                if data == b"[DONE]": break
+                                try: j = json.loads(data); tok = j["choices"][0]["delta"].get("content","")
+                                except: continue
+                                if tok: yield json.dumps({"message":{"content":tok}}).encode()
+                    def json(self): return {}
+                    @property
+                    def ok(self): return self.r.ok
+                    @property
+                    def status_code(self): return self.r.status_code
+                    @property
+                    def text(self): return self.r.text
+                return GroqStreamWrapper(resp)
+            else:
+                resp = requests.post(url, json=payload, headers=headers, timeout=60)
+                if not resp.ok:
+                    raise OllamaError(f"Groq returned {resp.status_code}: {resp.text[:500]}")
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"]
+                # mimic Ollama non-stream return
+                class FakeResp:
+                    def json(self_inner): return {"message": {"content": content}}
+                return FakeResp()
+        except OllamaError: raise
+        except Exception as e:
+            raise OllamaError(f"Groq error: {e}") from e
+
     def chat(
         self,
         messages: list[dict],
@@ -249,6 +333,9 @@ class OllamaClient:
         repeat_penalty: float | None = None,
         keep_alive: str | None = None,
     ):
+        # Groq/OpenAI cloud path
+        if self._use_groq():
+            return self._groq_chat(messages, temperature, stream, model_override=model, num_predict=num_predict)
         use_model = model
         if not use_model:
             use_model = self.vision_model if is_vision else self.text_model
