@@ -45,6 +45,7 @@ class OllamaClient:
         self._groq_key = getattr(settings, "GROQ_API_KEY", "") or os.environ.get("GROQ_API_KEY", "")
         self._openai_key = getattr(settings, "OPENAI_API_KEY", "") or os.environ.get("OPENAI_API_KEY", "")
         self._provider = getattr(settings, "AI_PROVIDER", "ollama").lower()
+        self._init_session()
 
     def _use_groq(self) -> bool:
         if self._provider in ("groq", "openai"):
@@ -58,17 +59,16 @@ class OllamaClient:
     def _groq_model(self) -> str:
         if self._provider == "openai" and self._openai_key:
             return getattr(settings, "OPENAI_MODEL", "gpt-4o-mini")
-        return getattr(settings, "GROQ_MODEL", "llama-3.1-8b-instant")
-        # Read timeouts (non-streaming only — streaming uses None)
+        return getattr(settings, "GROQ_MODEL", "llama3-8b-8192")
+
+    def _init_session(self):
         self.text_read_timeout = getattr(settings, "OLLAMA_TEXT_TIMEOUT", 90000) / 1000.0
         self.vision_read_timeout = getattr(settings, "OLLAMA_VISION_TIMEOUT", 300000) / 1000.0
         self.session = requests.Session()
-        # Connection pooling: keep-alive + properly sized pool for sub-10ms connect
         from requests.adapters import HTTPAdapter
         adapter = HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=0)
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
-        # Warm: ensure TCP connection pre-established
         self.session.headers.update({"Connection": "keep-alive"})
 
     # ── Internal helpers ─────────────────────────────────────────────────────
@@ -414,6 +414,8 @@ class OllamaClient:
         memory (kept warm via OLLAMA_KEEP_ALIVE). Returns True on success.
         Does not call this method on every request — use at startup / idle time.
         """
+        if self._use_groq():
+            return True
         use_model = model_name or self.text_model
         if not use_model:
             return False

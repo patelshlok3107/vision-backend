@@ -175,7 +175,7 @@ LOCAL_AI_ONLY = config('LOCAL_AI_ONLY', default=True, cast=bool)
 # Cloud LLM fallback (Groq / OpenAI) — free tier for Render
 GROQ_API_KEY = config('GROQ_API_KEY', default='')
 OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
-GROQ_MODEL = config('GROQ_MODEL', default='llama-3.1-8b-instant')
+GROQ_MODEL = config('GROQ_MODEL', default='llama3-8b-8192')
 OPENAI_MODEL = config('OPENAI_MODEL', default='gpt-4o-mini')
 
 OLLAMA_BASE_URL = config('OLLAMA_BASE_URL', default='http://localhost:11434')
