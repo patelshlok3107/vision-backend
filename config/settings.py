@@ -145,6 +145,12 @@ CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='', cast=Csv())
 if CORS_ALLOWED_ORIGINS and CORS_ALLOWED_ORIGINS != ['']:
     CORS_ALLOW_ALL_ORIGINS = False
 
+# Explicit CORS for production Vercel frontend
+CORS_ALLOW_HEADERS = list(config('CORS_ALLOW_HEADERS', default='accept,accept-encoding,authorization,content-type,dnt,origin,user-agent,x-csrftoken,x-requested-with,x-request-id', cast=Csv()))
+CORS_EXPOSE_HEADERS = ['X-Request-ID']
+CORS_ALLOW_CREDENTIALS = False  # we use Bearer tokens, not cookies
+CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='https://vision-bice-sigma.vercel.app,https://*.onrender.com', cast=Csv())
+
 # -------------------------------------------------------------------------
 # Celery / Redis
 # -------------------------------------------------------------------------

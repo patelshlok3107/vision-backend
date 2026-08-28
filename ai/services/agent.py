@@ -863,8 +863,21 @@ class VisionAgent:
                     final_response_parts.append(token)
                     # Immediately yield tokens — ZERO buffering
                     yield json.dumps({"type": "token", "content": token}) + "\n"
-            except Exception:
-                yield json.dumps({"type": "error", "content": "Failed to connect to local AI."}) + "\n"
+            except Exception as _ue:
+                err = str(_ue)
+                if "authenticate" in err.lower() or "401" in err:
+                    msg = "VISION couldn't authenticate with the AI service. Check server API key."
+                elif "rate-limited" in err.lower() or "429" in err:
+                    msg = "VISION's AI service is rate-limited. Please retry in a minute."
+                elif "not configured" in err.lower() or "api_key" in err.lower():
+                    msg = "VISION's AI service is not configured. The server is missing GROQ_API_KEY."
+                elif "groq" in err.lower() or "openai" in err.lower():
+                    msg = f"VISION couldn't reach the AI service: {err[:300]}"
+                elif "ollama" in err.lower() or "connect" in err.lower():
+                    msg = "VISION couldn't reach the AI service. The backend AI endpoint is unreachable."
+                else:
+                    msg = f"VISION couldn't complete that request: {err[:400]}"
+                yield json.dumps({"type": "error", "content": msg}) + "\n"
                 t_stream_done = int((time.perf_counter() - t_start) * 1000)
                 yield json.dumps({"type": "diagnostics", "content": {
                     "Request Start": 0,
@@ -1059,8 +1072,19 @@ class VisionAgent:
                         if token:
                             final_response_parts.append(token)
                             yield json.dumps({"type": "token", "content": token}) + "\n"
-            except Exception:
-                yield json.dumps({"type": "error", "content": "Failed to connect to local AI."}) + "\n"
+            except Exception as _se:
+                err = str(_se)
+                if "authenticate" in err.lower() or "401" in err:
+                    msg2 = "VISION couldn't authenticate with the AI service. Check server API key."
+                elif "rate-limited" in err.lower() or "429" in err:
+                    msg2 = "VISION's AI service is rate-limited. Please retry in a minute."
+                elif "not configured" in err.lower():
+                    msg2 = "VISION's AI service is not configured. The server is missing GROQ_API_KEY."
+                elif "groq" in err.lower() or "openai" in err.lower():
+                    msg2 = f"VISION couldn't reach the AI service: {err[:300]}"
+                else:
+                    msg2 = f"VISION couldn't complete that request: {err[:400]}"
+                yield json.dumps({"type": "error", "content": msg2}) + "\n"
 
             t_stream_done = int((time.perf_counter() - t_start) * 1000)
             final_response = "".join(final_response_parts)
@@ -1198,7 +1222,22 @@ class VisionAgent:
                     yield json.dumps({"type": "token", "content": p}) + "\n"
         except Exception as exc:
             logger.error("[OLLAMA] Error: %s", exc)
-            yield json.dumps({"type": "error", "content": str(exc)}) + "\n"
+            err = str(exc)
+            if "authenticate" in err.lower() or "401" in err:
+                em = "VISION couldn't authenticate with the AI service. Check server API key (GROQ_API_KEY)."
+            elif "rate-limited" in err.lower() or "429" in err:
+                em = "VISION's AI service is rate-limited. Please retry shortly."
+            elif "not configured" in err.lower():
+                em = "VISION's AI service is not configured. Server is missing GROQ_API_KEY."
+            elif "timeout" in err.lower():
+                em = "VISION's AI request timed out. Please try again."
+            elif "unavailable" in err.lower() or "connect" in err.lower():
+                em = "VISION couldn't reach the AI service. Please try again — if this persists, check that GROQ_API_KEY is set on the server."
+            elif "model" in err.lower() and "install" in err.lower():
+                em = f"VISION's configured AI model is unavailable: {err[:250]}"
+            else:
+                em = f"VISION couldn't complete the request: {err[:400]}"
+            yield json.dumps({"type": "error", "content": em}) + "\n"
             yield json.dumps({"type": "diagnostics", "content": {
                 "Request Start": 0,
                 "Classify": t_classify,

@@ -550,14 +550,26 @@ class AIHealthView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        # New structured health per spec §11
+        import logging as _lg
+        _logger = _lg.getLogger("vision.health")
+        _logger.info("[HEALTH] AI health check: provider=%s base=%s", getattr(settings, 'AI_PROVIDER', ''), getattr(settings, 'OLLAMA_BASE_URL', ''))
         health = ollama_client.healthCheck()
-        # Keep legacy status for backward compat
         legacy_ok = health["ollama"]["connected"] and health["textModel"]["installed"]
         status_code = 200 if legacy_ok else 503
-        # Combine new + legacy
         health["status"] = "healthy" if legacy_ok else "unhealthy"
-        health["provider"] = "ollama"
+        # Normalize provider for response
+        base = str(health.get("ollama", {}).get("baseUrl", "")).lower()
+        if "groq" in base or getattr(settings, 'AI_PROVIDER', '').lower() == "groq":
+            health["provider"] = "groq"
+        elif "openai" in base or getattr(settings, 'AI_PROVIDER', '').lower() == "openai":
+            health["provider"] = "openai"
+        else:
+            health["provider"] = "ollama"
+        # Add spec-compliant top-level fields
+        health["reachable"] = bool(health["ollama"]["connected"])
+        health["model"] = health.get("textModel", {}).get("name", "")
+        if not legacy_ok:
+            _logger.warning("[AI ERROR] Provider=%s reachable=%s error=%s", health["provider"], health["reachable"], health.get("ollama", {}).get("error", "unknown"))
         return Response(health, status=status_code)
 
 

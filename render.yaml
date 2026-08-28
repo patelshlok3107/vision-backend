@@ -5,15 +5,47 @@ services:
     rootDir: backend
     buildCommand: ./build.sh
     startCommand: daphne -b 0.0.0.0 -p $PORT config.asgi:application
-    healthCheckPath: /api/ai/health/
+    healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
       - key: DEBUG
         value: False
+      # Hosts / CORS
       - key: ALLOWED_HOSTS
-        value: .onrender.com,vision-bice-sigma.vercel.app
+        value: .onrender.com,vision-bice-sigma.vercel.app,localhost,127.0.0.1
       - key: CORS_ALLOW_ALL_ORIGINS
         value: False
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://vision-bice-sigma.vercel.app,https://vision-bice-sigma-git-main-shloks-projects.vercel.app,http://localhost:3000,http://127.0.0.1:3000
+      # Security
+      - key: SECRET_KEY
+        sync: false
+      # DATABASE_URL is auto-provided if you attach a Render Postgres; otherwise set manually
+      - key: DATABASE_URL
+        sync: false
+      # AI Provider
+      # Render cannot reach localhost:11434 - use Groq (free tier) for production.
+      # Set GROQ_API_KEY in Render dashboard (Environment -> Add). Get key at https://console.groq.com/keys
+      - key: AI_PROVIDER
+        value: groq
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.1-8b-instant
+      - key: LOCAL_AI_ONLY
+        value: False
       - key: OLLAMA_BASE_URL
-        value: https://api.ollama.cloud  # replace with Ollama Cloud or tunnel URL; localhost:11434 won't work on Render
+        value: https://api.groq.com
+      - key: OLLAMA_TEXT_MODEL
+        value: llama3
+      # Vision not supported on Groq free tier — leave empty or set to "" so backend returns clear error for image requests
+      - key: OLLAMA_VISION_MODEL
+        value: ""
+      - key: OLLAMA_VISION_ENABLED
+        value: False
+      # Optional OpenAI fallback
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
