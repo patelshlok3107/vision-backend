@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: vision-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: ./build.sh
+    startCommand: daphne -b 0.0.0.0 -p $PORT config.asgi:application
+    healthCheckPath: /api/ai/health/
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: DEBUG
+        value: False
+      - key: ALLOWED_HOSTS
+        value: .onrender.com,vision-bice-sigma.vercel.app
+      - key: CORS_ALLOW_ALL_ORIGINS
+        value: False
+      - key: OLLAMA_BASE_URL
+        value: https://api.ollama.cloud  # replace with Ollama Cloud or tunnel URL; localhost:11434 won't work on Render
