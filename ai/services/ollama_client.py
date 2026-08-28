@@ -41,37 +41,57 @@ class OllamaClient:
         self.text_model = getattr(settings, "OLLAMA_TEXT_MODEL", "") or getattr(settings, "OLLAMA_MODEL", "")
         self.vision_model = getattr(settings, "OLLAMA_VISION_MODEL", "")
         self.embedding_model = settings.OLLAMA_EMBEDDING_MODEL
-        # Cloud LLM (Groq/OpenAI) detection
-        self._groq_key = getattr(settings, "GROQ_API_KEY", "") or os.environ.get("GROQ_API_KEY", "")
+        # Cloud LLM (Groq/Grok/OpenAI) detection — Grok (xAI) alias via GROK_API_KEY
+        self._groq_key = getattr(settings, "GROQ_API_KEY", "") or os.environ.get("GROQ_API_KEY", "") or os.environ.get("GROK_API_KEY", "")
+        self._grok_key = getattr(settings, "GROK_API_KEY", "") or os.environ.get("GROK_API_KEY", "") or os.environ.get("GROQ_API_KEY", "")
+        # Prefer explicit GROK_API_KEY if set differently from GROQ
+        _grok_explicit = getattr(settings, "GROK_API_KEY", "") or os.environ.get("GROK_API_KEY", "")
+        if _grok_explicit:
+            self._grok_key = _grok_explicit
         self._openai_key = getattr(settings, "OPENAI_API_KEY", "") or os.environ.get("OPENAI_API_KEY", "")
         self._provider = getattr(settings, "AI_PROVIDER", "ollama").lower()
         self._init_session()
 
     def _refresh_keys(self):
-        # Re-read env each call — Render injects GROQ_API_KEY at runtime after build
+        # Re-read env each call — Render injects GROQ/GROK API_KEY at runtime after build
         import os as _os
         from django.conf import settings as _s
-        self._groq_key = getattr(_s, "GROQ_API_KEY", "") or _os.environ.get("GROQ_API_KEY", "")
+        self._groq_key = getattr(_s, "GROQ_API_KEY", "") or _os.environ.get("GROQ_API_KEY", "") or _os.environ.get("GROK_API_KEY", "")
+        _grok_explicit = getattr(_s, "GROK_API_KEY", "") or _os.environ.get("GROK_API_KEY", "")
+        self._grok_key = _grok_explicit or getattr(_s, "GROK_API_KEY", "") or _os.environ.get("GROK_API_KEY", "") or _os.environ.get("GROQ_API_KEY", "")
+        if _grok_explicit:
+            self._grok_key = _grok_explicit
         self._openai_key = getattr(_s, "OPENAI_API_KEY", "") or _os.environ.get("OPENAI_API_KEY", "")
         self._provider = getattr(_s, "AI_PROVIDER", "ollama").lower()
         self.base_url = getattr(_s, "OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 
     def _use_groq(self) -> bool:
+        # Alias for cloud detection — supports Groq, Grok (xAI), OpenAI
+        return self._use_cloud()
+
+    def _use_cloud(self) -> bool:
         self._refresh_keys()
-        # If cloud key exists, use it — Render has GROQ_API_KEY, local PC does not
-        if self._groq_key or self._openai_key:
+        # If any cloud key exists, use it — Render has GROQ/GROK_API_KEY, local PC does not
+        if self._grok_key or self._groq_key or self._openai_key:
             return True
-        if self._provider in ("groq", "openai"):
-            return bool(self._groq_key or self._openai_key)
+        if self._provider in ("groq", "grok", "openai", "xai"):
+            return bool(self._grok_key or self._groq_key or self._openai_key)
         b = self.base_url.lower()
-        if "groq" in b or "openai" in b:
-            return bool(self._groq_key or self._openai_key)
+        if "groq" in b or "grok" in b or "x.ai" in b or "openai" in b:
+            return bool(self._grok_key or self._groq_key or self._openai_key)
         return False
+
+    def _use_grok(self) -> bool:
+        # Explicit Grok check (xAI)
+        self._refresh_keys()
+        return bool(self._grok_key) and self._provider in ("grok", "xai", "grok-1", "grok-2") or ("x.ai" in self.base_url.lower() and bool(self._grok_key))
 
     def _groq_model(self) -> str:
         if self._provider == "openai" and self._openai_key:
             return getattr(settings, "OPENAI_MODEL", "gpt-4o-mini")
-        return getattr(settings, "GROQ_MODEL", "llama3-8b-8192")
+        if self._provider in ("grok", "xai") and self._grok_key:
+            return getattr(settings, "GROK_MODEL", getattr(settings, "GROQ_MODEL", "grok-beta"))
+        return getattr(settings, "GROQ_MODEL", getattr(settings, "GROK_MODEL", "llama3-8b-8192"))
 
     def _init_session(self):
         self.text_read_timeout = getattr(settings, "OLLAMA_TEXT_TIMEOUT", 90000) / 1000.0
@@ -245,21 +265,34 @@ class OllamaClient:
 
     def healthCheck(self) -> dict:
         """Structured health per spec — no sensitive env exposure."""
-        # Check Groq/OpenAI provider first — even if key missing, report clearly
+        # Check Groq/Grok/OpenAI provider first — even if key missing, report clearly
         self._refresh_keys()
-        is_cloud_provider = self._provider in ("groq", "openai") or "groq" in self.base_url.lower() or "openai" in self.base_url.lower()
-        if self._use_groq() or is_cloud_provider:
+        is_cloud_provider = self._provider in ("groq", "grok", "openai", "xai") or "groq" in self.base_url.lower() or "grok" in self.base_url.lower() or "x.ai" in self.base_url.lower() or "openai" in self.base_url.lower()
+        if self._use_cloud() or is_cloud_provider:
             m = self._groq_model()
-            has_key = bool(self._groq_key or self._openai_key)
-            prov = "groq" if (self._provider == "groq" or "groq" in m.lower() or self._groq_key) else "openai"
-            if not has_key and is_cloud_provider:
-                return {
-                    "ollama": {"connected": False, "baseUrl": prov, "error": "GROQ_API_KEY not set on server - set it in Render -> Environment -> GROQ_API_KEY (https://console.groq.com/keys)"},
-                    "textModel": {"name": m, "installed": False},
-                    "visionModel": {"name": "", "installed": False, "capable": False, "configured": False},
-                }
+            # Grok uses grok key, Groq uses groq key
+            if self._provider in ("grok", "xai"):
+                has_key = bool(self._grok_key)
+                prov = "grok"
+                if not has_key and is_cloud_provider:
+                    return {
+                        "ollama": {"connected": False, "baseUrl": prov, "error": "GROK_API_KEY not set on server - set it in Render -> Environment -> GROK_API_KEY (https://console.x.ai)"},
+                        "textModel": {"name": m, "installed": False},
+                        "visionModel": {"name": "", "installed": False, "capable": False, "configured": False},
+                    }
+            else:
+                has_key = bool(self._groq_key or self._grok_key or self._openai_key)
+                prov = "groq" if (self._provider == "groq" or "groq" in m.lower() or self._groq_key) else "openai"
+                if "grok" in self.base_url.lower() or self._provider == "grok":
+                    prov = "grok"
+                if not has_key and is_cloud_provider:
+                    return {
+                        "ollama": {"connected": False, "baseUrl": prov, "error": "GROQ_API_KEY / GROK_API_KEY not set on server - set it in Render -> Environment"},
+                        "textModel": {"name": m, "installed": False},
+                        "visionModel": {"name": "", "installed": False, "capable": False, "configured": False},
+                    }
             return {
-                "ollama": {"connected": has_key, "baseUrl": prov, "error": None if has_key else "GROQ_API_KEY not set on server"},
+                "ollama": {"connected": has_key, "baseUrl": prov, "error": None if has_key else "GROQ_API_KEY / GROK_API_KEY not set on server"},
                 "textModel": {"name": m, "installed": has_key},
                 "visionModel": {"name": "", "installed": False, "capable": False, "configured": False},
             }
@@ -301,10 +334,15 @@ class OllamaClient:
         "mistral": "mixtral-8x7b-32768",
     }
     def _groq_chat(self, messages, temperature, stream, model_override=None, num_predict=None):
-        """Groq/OpenAI compatible path — uses requests, supports streaming SSE."""
+        """Groq/Grok/OpenAI compatible path — uses requests, supports streaming SSE."""
         self._refresh_keys()
+        is_grok = "grok" in self.base_url.lower() or "x.ai" in self.base_url.lower() or self._provider in ("grok", "xai")
         is_groq = "groq" in self.base_url.lower() or self._provider == "groq"
-        if is_groq:
+        if is_grok and self._grok_key:
+            url = "https://api.x.ai/v1/chat/completions"
+            key = self._grok_key
+            model = model_override or getattr(settings, "GROK_MODEL", "grok-beta")
+        elif is_groq:
             url = "https://api.groq.com/openai/v1/chat/completions"
             key = self._groq_key
             model = model_override or self._groq_model()
@@ -312,11 +350,23 @@ class OllamaClient:
             model = self.GROQ_MODEL_MAP.get(model, self.GROQ_MODEL_MAP.get(model.lower(), model))
             if model.lower() == "llama3": model = "llama3-8b-8192"
         else:
-            url = "https://api.openai.com/v1/chat/completions"
-            key = self._openai_key
-            model = model_override or getattr(settings, "OPENAI_MODEL", "gpt-4o-mini")
+            # Default to Groq if groq key exists, else Grok, else OpenAI
+            if self._groq_key:
+                url = "https://api.groq.com/openai/v1/chat/completions"
+                key = self._groq_key
+                model = model_override or self._groq_model()
+                model = self.GROQ_MODEL_MAP.get(model, self.GROQ_MODEL_MAP.get(model.lower(), model))
+                if model.lower() == "llama3": model = "llama3-8b-8192"
+            elif self._grok_key:
+                url = "https://api.x.ai/v1/chat/completions"
+                key = self._grok_key
+                model = model_override or getattr(settings, "GROK_MODEL", "grok-beta")
+            else:
+                url = "https://api.openai.com/v1/chat/completions"
+                key = self._openai_key
+                model = model_override or getattr(settings, "OPENAI_MODEL", "gpt-4o-mini")
         if not key:
-            raise OllamaError("VISION's AI service is not configured. Set GROQ_API_KEY (https://console.groq.com/keys) or OPENAI_API_KEY on the server. Local Ollama at %s is unreachable from Render." % self.base_url)
+            raise OllamaError("VISION's AI service is not configured. Set GROQ_API_KEY (https://console.groq.com/keys) / GROK_API_KEY (https://console.x.ai) or OPENAI_API_KEY on the server. Local Ollama at %s is unreachable from Render." % self.base_url)
         headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
         payload = {"model": model, "messages": messages, "temperature": temperature, "stream": stream}
         if num_predict:

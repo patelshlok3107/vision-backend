@@ -178,11 +178,28 @@ LEARNING_MIN_QUALITY_SCORE = config('LEARNING_MIN_QUALITY_SCORE', default=60, ca
 AI_PROVIDER = config('AI_PROVIDER', default='ollama')
 LOCAL_AI_ONLY = config('LOCAL_AI_ONLY', default=True, cast=bool)
 
-# Cloud LLM fallback (Groq / OpenAI) — free tier for Render
+# Cloud LLM fallback (Groq / OpenAI / Grok) — free tier for Render
 GROQ_API_KEY = config('GROQ_API_KEY', default='')
 OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
 GROQ_MODEL = config('GROQ_MODEL', default='llama3-8b-8192')
 OPENAI_MODEL = config('OPENAI_MODEL', default='gpt-4o-mini')
+# Grok (xAI) — alias for Groq keepalive naming; supports both GROK and GROQ env naming
+GROK_API_KEY = config('GROK_API_KEY', default=config('GROQ_API_KEY', default=''))
+GROK_MODEL = config('GROK_MODEL', default=config('GROQ_MODEL', default='llama3-8b-8192'))
+# Support GROQ keepalive alias env as well (GROQ_KEEPALIVE_*), but primary is GROK per spec
+GROK_KEEPALIVE_ENABLED = config('GROK_KEEPALIVE_ENABLED', default=config('GROQ_KEEPALIVE_ENABLED', default=True), cast=bool)
+GROK_KEEPALIVE_INTERVAL_MS = config('GROK_KEEPALIVE_INTERVAL_MS', default=config('GROQ_KEEPALIVE_INTERVAL_MS', default=config('GROK_KEEPALIVE_INTERVAL', default=840000)), cast=int)
+# Fallback: if GROK_KEEPALIVE_INTERVAL is like "14m", parse it
+try:
+    _gka = str(GROK_KEEPALIVE_INTERVAL_MS)
+    if _gka.endswith('m'):
+        GROK_KEEPALIVE_INTERVAL_MS = int(_gka[:-1]) * 60 * 1000
+    elif _gka.endswith('s'):
+        GROK_KEEPALIVE_INTERVAL_MS = int(_gka[:-1]) * 1000
+except:
+    pass
+GROQ_KEEPALIVE_ENABLED = GROK_KEEPALIVE_ENABLED
+GROQ_KEEPALIVE_INTERVAL_MS = GROK_KEEPALIVE_INTERVAL_MS
 
 OLLAMA_BASE_URL = config('OLLAMA_BASE_URL', default='http://localhost:11434')
 # Text model — primary reasoning model

@@ -49,3 +49,32 @@ services:
         sync: false
       - key: OPENAI_MODEL
         value: gpt-4o-mini
+      # Grok (xAI) — alternative to Groq, same keep-alive system via GROK_API_KEY
+      - key: GROK_API_KEY
+        sync: false
+      - key: GROK_MODEL
+        value: grok-beta
+      # Keep-alive — keeps Grok/Groq warm every 14m, lightweight 1-token ping, server-side only
+      - key: GROK_KEEPALIVE_ENABLED
+        value: true
+      - key: GROK_KEEPALIVE_INTERVAL_MS
+        value: 840000
+      # Alias for Groq naming (same as GROK_*)
+      - key: GROQ_KEEPALIVE_ENABLED
+        value: true
+      - key: GROQ_KEEPALIVE_INTERVAL_MS
+        value: 840000
+
+  # Optional Render Cron — pings internal keepalive endpoint every 14m to wake free instance and keep Grok warm
+  # If Render free instance sleeps, in-process keepalive won't run; this cron wakes it via HTTP.
+  # Enable by uncommenting and setting schedule. Uses lightweight POST to /api/internal/keepalive
+  - type: cron
+    name: vision-keepalive
+    runtime: python
+    rootDir: backend
+    schedule: "*/14 * * * *"
+    buildCommand: pip install requests
+    startCommand: python -c "import requests, os; url=os.environ.get('KEEPALIVE_URL','https://vision-backend-llzj.onrender.com/api/internal/keepalive'); print('[CRON] Ping', url); r=requests.post(url, timeout=15); print(r.status_code, r.text[:300])"
+    envVars:
+      - key: KEEPALIVE_URL
+        value: https://vision-backend-llzj.onrender.com/api/internal/keepalive

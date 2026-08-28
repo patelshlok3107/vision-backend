@@ -8,8 +8,13 @@ class AiAgentConfig(AppConfig):
     def ready(self):
         import sys
         import threading
-        if 'runserver' not in sys.argv and 'daphne' not in sys.argv[0]:
-            return
+        # Only run startup logic for actual server processes (runserver, daphne, gunicorn, uvicorn)
+        is_server = any(k in sys.argv[0] for k in ("daphne", "gunicorn", "uvicorn", "runserver")) or "runserver" in sys.argv
+        # Also allow when DJANGO_SETTINGS_MODULE is set and not in migrate/collectstatic
+        if not is_server and not any(c in " ".join(sys.argv) for c in ("runserver", "daphne")):
+            # Still start keepalive for any long-running process on Render (daphne)
+            if "migrate" in sys.argv or "collectstatic" in sys.argv or "makemigrations" in sys.argv:
+                return
         def startup_check():
             import time
             time.sleep(2)
@@ -58,6 +63,12 @@ class AiAgentConfig(AppConfig):
                         logger.info("Code model warmup: %s", "✓" if ok2 else "✗")
                 except Exception as exc:
                     logger.warning(f"Code model warmup failed: {exc}")
+                # Start Grok/Groq keep-alive scheduler (server-side, every ~14m)
+                try:
+                    from ai.services.grok_keepalive import start_keepalive
+                    start_keepalive()
+                except Exception as e:
+                    logger.warning(f"[VISION] Grok keep-alive start failed: {e}")
             except Exception as exc:
                 logger.warning(f"VISION startup check failed: {exc}")
         threading.Thread(target=startup_check, daemon=True).start()
