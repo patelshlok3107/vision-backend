@@ -272,10 +272,11 @@ class OllamaClient:
         return result
 
     GROQ_MODEL_MAP = {
-        "llama3": "llama3-8b-8192",
-        "llama-3.1-8b-instant": "llama3-8b-8192",
-        "llama3.1": "llama3-8b-8192",
-        "llama3-70b": "llama3-70b-8192",
+        "llama3": "groq/compound-mini",
+        "llama-3.1-8b-instant": "groq/compound-mini",
+        "llama3.1": "groq/compound-mini",
+        "llama3-8b-8192": "groq/compound-mini",
+        "llama3-70b": "groq/compound",
         "mistral": "mixtral-8x7b-32768",
     }
     def _groq_chat(self, messages, temperature, stream, model_override=None, num_predict=None):
