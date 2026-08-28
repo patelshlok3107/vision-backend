@@ -5,7 +5,9 @@ All sensitive and environment-specific values are loaded from .env via python-de
 
 from pathlib import Path
 from datetime import timedelta
+from urllib.parse import urlparse
 from decouple import config, Csv
+import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -99,6 +101,17 @@ DATABASES = {
         'PORT': config('DB_PORT', default='5433'),
     }
 }
+# Render / Railway provide DATABASE_URL — override if set
+if os.environ.get("DATABASE_URL"):
+    u = urlparse(os.environ["DATABASE_URL"])
+    DATABASES["default"] = {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': u.path[1:],
+        'USER': u.username,
+        'PASSWORD': u.password,
+        'HOST': u.hostname,
+        'PORT': u.port or 5432,
+    }
 
 AUTH_USER_MODEL = 'users.User'
 
@@ -127,6 +140,10 @@ SIMPLE_JWT = {
 }
 
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)
+CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='', cast=Csv())
+# If explicit origins set, disable allow-all
+if CORS_ALLOWED_ORIGINS and CORS_ALLOWED_ORIGINS != ['']:
+    CORS_ALLOW_ALL_ORIGINS = False
 
 # -------------------------------------------------------------------------
 # Celery / Redis
