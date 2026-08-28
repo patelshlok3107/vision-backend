@@ -262,6 +262,13 @@ class OllamaClient:
                 result["visionModel"]["capable"] = self.is_vision_capable(self.vision_model)
         return result
 
+    GROQ_MODEL_MAP = {
+        "llama3": "llama3-8b-8192",
+        "llama-3.1-8b-instant": "llama3-8b-8192",
+        "llama3.1": "llama3-8b-8192",
+        "llama3-70b": "llama3-70b-8192",
+        "mistral": "mixtral-8x7b-32768",
+    }
     def _groq_chat(self, messages, temperature, stream, model_override=None, num_predict=None):
         """Groq/OpenAI compatible path — uses requests, supports streaming SSE."""
         is_groq = "groq" in self.base_url.lower() or self._provider == "groq"
@@ -269,6 +276,9 @@ class OllamaClient:
             url = "https://api.groq.com/openai/v1/chat/completions"
             key = self._groq_key
             model = model_override or self._groq_model()
+            # map Ollama model names to Groq equivalents
+            model = self.GROQ_MODEL_MAP.get(model, self.GROQ_MODEL_MAP.get(model.lower(), model))
+            if model.lower() == "llama3": model = "llama3-8b-8192"
         else:
             url = "https://api.openai.com/v1/chat/completions"
             key = self._openai_key
