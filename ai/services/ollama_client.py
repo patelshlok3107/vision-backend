@@ -48,9 +48,11 @@ class OllamaClient:
         self._init_session()
 
     def _use_groq(self) -> bool:
+        # If cloud key exists, use it — Render has GROQ_API_KEY, local PC does not
+        if self._groq_key or self._openai_key:
+            return True
         if self._provider in ("groq", "openai"):
             return bool(self._groq_key or self._openai_key)
-        # auto-detect by URL
         b = self.base_url.lower()
         if "groq" in b or "openai" in b:
             return bool(self._groq_key or self._openai_key)
