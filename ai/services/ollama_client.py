@@ -149,6 +149,13 @@ class OllamaClient:
     def model_exists(self, name: str) -> bool:
         if not name:
             return False
+        if self._use_groq():
+            # Groq hosts models — treat requested as installed if matches groq model or is mapped
+            if name == self._groq_model(): return True
+            if name.lower() in [v.lower() for v in self.GROQ_MODEL_MAP.values()]: return True
+            if name.lower() == "llama3": return True
+            # For Groq, assume any requested model is available (Groq serves via same endpoint)
+            return True
         try:
             models = self.list_models()
             short = name.split(":")[0].lower()
